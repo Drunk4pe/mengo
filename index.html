@@ -350,7 +350,8 @@ main .fl select,main .fl input{width:100%;border:1px solid var(--line);border-ra
 .swipe{position:relative}
 .swipe .proj{width:100%;box-sizing:border-box;margin:0;position:relative;z-index:1;background:var(--card);touch-action:pan-y;will-change:transform;transition:transform .18s ease}
 .swipe-del{position:absolute;top:6px;right:6px;bottom:6px;width:76px;border:0;border-radius:14px;background:#d7352a;color:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;font:inherit;font-size:22px;z-index:0}
-.swipe-del span{font-size:12px;font-weight:600}</style>
+.swipe-del span{font-size:12px;font-weight:600}
+.okbox{background:#eaf7ed;border:1px solid #bfe3c7;color:#1f7a3a;border-radius:12px;padding:11px 13px;font-weight:600;margin:4px 0 10px;font-size:15px}</style>
 </head>
 <body>
 <div id="app"></div>
@@ -701,6 +702,8 @@ function parseLines(text){
     n = n.replace(/^[,\s]+/,"").replace(/\s*\(.*?\)\s*$/,"").trim();
     if(/^(etwas|n\.\s*b\.?|nach belieben|evtl\.?)\s*/i.test(n)){ n = n.replace(/^(etwas|n\.\s*b\.?|nach belieben|evtl\.?)\s*/i,""); q = null; }
     if(!n) return;
+    if(/^[\d\s.,]*\d[\d\s.,]*\s*(g|kg|mg|ml|l|kcal|kj|%)?$/i.test(n)) return;
+    if(/^(kcal|kj|kalorien|energie|brennwert|n[äa]hrwerte?|stk|st[üu]ck|g|kg|mg|ml|l|el|tl|portion|portionen)$/i.test(n)) return;
     if(q!=null && !u) u = "Stk";
     out.push({q:q, u:normUnit(u||(q==null?"":"Stk")), n:n.charAt(0).toUpperCase()+n.slice(1)});
   });
@@ -1363,7 +1366,7 @@ function openRecipe(id, pi, tmpP){
 }
 function showSheet(html){ $("sheet").innerHTML = html; $("sheetBg").classList.add("show"); document.body.style.overflow = "hidden"; }
 function closeSheet(){ $("sheetBg").classList.remove("show"); document.body.style.overflow = ""; openState = null; }
-var draft = null;
+var draft = null, importNote = "";
 function newRecipe(editId){
   var ex = editId ? (G.own||[]).filter(function(r){ return r.id===editId; })[0] : null;
   draft = ex ? JSON.parse(JSON.stringify(ex)) : {id:uid(), own:true, name:"", e:"🍽️", base:4, ing:[], steps:[]};
@@ -1378,8 +1381,9 @@ function renderDraft(){
   h += '<div class="tb"><button class="btn primary" data-act="parse">Zutaten erkennen</button><button class="btn" id="aiBtn" data-act="ai" style="display:none">✨ Mit Claude auslesen</button></div>';
   h += '<div class="importbox"><b>Oder schneller:</b><div class="addrow"><input id="dLink" type="url" inputmode="url" placeholder="🔗 Link zum Rezept einfügen"><button class="btn" data-act="linkImport">Holen</button></div><div class="photo"><label class="btn">📷 Foto oder Screenshot<input type="file" id="dPhoto" accept="image/*" hidden></label><span class="muted small">Zutatenliste fotografieren – die App liest den Text.</span></div></div>';
   h += '<div id="aiStatus" class="muted small"></div>';
+  if(importNote) h += '<div id="erk" class="okbox">✅ '+esc(importNote)+'</div>';
   if(d.ing.length){
-    h += '<h3>Erkannte Zutaten <span class="muted small">– bitte kurz prüfen</span></h3><div class="drows">';
+    h += '<h3'+(importNote?'':' id="erk"')+'>Erkannte Zutaten <span class="muted small">– bitte kurz prüfen</span></h3><div class="drows">';
     d.ing.forEach(function(x, i){
       var s = x.s || FK.scaleType(x.n, FK.normUnit(x.u||""), false);
       h += '<div class="drow"><input class="dq" data-i="'+i+'" data-f="q" value="'+(x.q==null?"":String(x.q).replace(".",","))+'" placeholder="–"><input class="du" data-i="'+i+'" data-f="u" value="'+esc(x.u||"")+'" placeholder="Einh."><input class="dn" data-i="'+i+'" data-f="n" value="'+esc(x.n)+'"><select data-i="'+i+'" data-f="s">'+["m","g","f","l"].map(function(k){ return '<option value="'+k+'"'+(s===k?' selected':'')+'>'+({m:'Hauptzutat (1:1)',g:'🧂 Gewürz (weniger)',f:'🧈 Fett/Öl (etwas weniger)',l:'💧 Flüssigkeit (etwas weniger)'})[k]+'</option>'; }).join('')+'</select><button class="x" data-act="delRow" data-i="'+i+'">✕</button></div>';
@@ -1391,6 +1395,7 @@ function renderDraft(){
   h += '<div class="sh-foot"><button class="btn primary" data-act="saveDraft">Rezept speichern</button><button class="btn" data-act="close">Abbrechen</button></div>';
   showSheet(h);
   refreshAiButtons();
+  if(importNote){ var _n = importNote; importNote = ""; setTimeout(function(){ var a = document.getElementById("erk"); if(a) a.scrollIntoView({behavior:"smooth", block:"center"}); }, 60); }
 }
 function readDraftFields(){
   if(!draft) return;
@@ -1413,8 +1418,8 @@ function parseDraft(){
   var p = FK.portionsFromText(txt); if(p) draft.base = p;
   draft.ing = draft.ing.concat(rows);
   if(sp.steps.length && !(draft.steps||[]).length) draft.steps = sp.steps;
+  importNote = rows.length+" Zutaten erkannt"+(sp.steps.length?" + Zubereitung":"")+" – bitte unten prüfen und speichern.";
   renderDraft();
-  toast(rows.length+" Zutaten erkannt"+(sp.steps.length?" + Zubereitung":""));
 }
 function aiParse(file){
   if(!sample) return;
@@ -1860,17 +1865,20 @@ function copyZeitplan(){
 }
 function splitFull(text){
   var lines = String(text||"").replace(/ /g," ").split(/\r?\n/).map(function(l){ return l.replace(/\s+/g," ").trim(); }).filter(Boolean);
-  var ings=[], steps=[], base=null, mode="auto";
+  var ings=[], steps=[], base=null, mode="auto", done=false;
   var UNIT=/\b(g|gramm|kg|ml|l|liter|el|essl|esslöffel|tl|teelöffel|prise|prisen|zehe|zehen|dose|dosen|glas|gläser|pck|packung|packungen|bund|becher|stück|stk|scheibe|scheiben|tasse|tassen|kugel|msp|messerspitze)\b/i;
   var QTY=/^[\-\*•·◦▢□\s]*(\d|½|¼|¾|⅓|⅔|⅛)/;
   function looksIng(l){ if(QTY.test(l)) return true; if(UNIT.test(l) && l.split(" ").length<=6) return true; return false; }
   function portion(l){ var m=l.match(/f[üu]r\s+(\d+)\s*(person|portion)/i)||l.match(/(\d+)\s*(portion|person)en?\b/i); return m?parseInt(m[1],10):0; }
-  function noise(l){ return /^(\d+\s*(min|minuten|std|stunden)\b|zubereitungszeit|koch-?zeit|back-?zeit|gesamtzeit|arbeitszeit|ruhezeit|schwierigkeitsgrad|schwierigkeit|niveau|einfach|mittel|raffiniert|kalorien|kcal|nährwert|pro portion|bewertung|drucken|merken|teilen|speichern|kommentar|anzeige|werbung|cookie)\b/i.test(l); }
+  function noise(l){ return /^(\d+\s*(min|minuten|std|stunden)\b|zubereitungszeit|koch-?zeit|back-?zeit|gesamtzeit|arbeitszeit|ruhezeit|schwierigkeitsgrad|schwierigkeit|niveau|einfach|mittel|raffiniert|bewertung|drucken|merken|teilen|speichern|kommentar|anzeige|werbung|cookie)\b/i.test(l); }
+  function valueOnly(l){ return /^[\d\s.,]*\d[\d\s.,]*\s*(g|kg|mg|ml|l|kcal|kj|%)?$/i.test(l) || /^(kcal|kj|kalorien|energie|brennwert|fett|davon|ges[äa]ttigte|kohlenhydrate|zucker|eiwei[ßs]|protein|ballaststoffe|natrium|salz)\s*[:\d]/i.test(l); }
   lines.forEach(function(l){
+    if(done) return;
     var p=portion(l); if(p && !base) base=p;
+    if(/^(n[äa]hrwert|pro portion|pro 100|brennwert|energie|kalorien|kcal\b|je portion|n[äa]hrwerte)/i.test(l)){ done=true; return; }
     if(/^(zubereitung|anleitung|zubereitungsschritte|arbeitsschritte|so geht('?s)?|und so geht|schritte|method|instructions)\b/i.test(l)){ mode="step"; return; }
     if(/^(zutaten|ingredients)\b/i.test(l)){ mode="ing"; return; }
-    if(noise(l)) return;
+    if(noise(l) || valueOnly(l)) return;
     var wc=l.split(" ").length;
     if(mode==="step"){ if(wc>=2) steps.push(l); return; }
     if(looksIng(l)){ ings.push(l); return; }
@@ -1897,7 +1905,8 @@ function applyImported(v, u){
   draft.ing = draft.ing.concat(rows);
   if(v.steps && v.steps.length && !(draft.steps||[]).length) draft.steps = v.steps.map(String).slice(0,30);
   if(u) draft.src = u;
-  renderDraft(); toast(rows.length+" Zutaten übernommen – bitte kurz prüfen");
+  importNote = rows.length+" Zutaten übernommen"+(v.steps&&v.steps.length?" + Zubereitung":"")+" – bitte unten prüfen und speichern.";
+  renderDraft();
 }
 function extractRecipe(html){
   var recipes = [];
@@ -1936,6 +1945,7 @@ function importLink(url){
   var fail = function(){ var s2 = $("aiStatus"); if(s2) s2.innerHTML = 'Das hat nicht geklappt. Manche Seiten lassen sich nicht auslesen – dann die Zutaten auf der Seite markieren, kopieren und unten einfügen, oder einen <b>Screenshot</b> als Foto einfügen.'; };
   var sources = [];
   if(FK_CONFIG.importProxy) sources.push(function(){ return fetch(FK_CONFIG.importProxy+"?url="+encodeURIComponent(u)).then(function(r){ if(!r.ok) throw 0; return r.json(); }).then(function(v){ if(v && v.ingredients && v.ingredients.length) return v; throw 0; }); });
+  sources.push(function(){ return fetch("https://r.jina.ai/"+u, {headers:{"X-Return-Format":"html"}}).then(function(r){ if(!r.ok) throw 0; return r.text(); }).then(function(html){ var v = extractRecipe(html); if(v) return v; throw 0; }); });
   sources.push(function(){ return fetch("https://api.allorigins.win/raw?url="+encodeURIComponent(u)).then(function(r){ if(!r.ok) throw 0; return r.text(); }).then(function(html){ var v = extractRecipe(html); if(v) return v; throw 0; }); });
   sources.push(function(){ return fetch("https://api.codetabs.com/v1/proxy/?quest="+encodeURIComponent(u)).then(function(r){ if(!r.ok) throw 0; return r.text(); }).then(function(html){ var v = extractRecipe(html); if(v) return v; throw 0; }); });
   sources.push(function(){ return fetch("https://r.jina.ai/"+u).then(function(r){ if(!r.ok) throw 0; return r.text(); }).then(function(t){ var sp = splitFull(t); if(!sp.ingredients.length) throw 0; var nm = (t.match(/^Title:\s*(.+)$/m)||[])[1]; return {name: nm?nm.replace(/\s*[|\-–—].*$/,"").trim():null, portions: sp.portions, ingredients: sp.ingredients, steps: sp.steps}; }); });
@@ -1972,8 +1982,8 @@ function importPhoto(file){
       draft.ing = draft.ing.concat(rows);
       if(sp.portions) draft.base = Math.max(1, Math.min(500, sp.portions));
       if(sp.steps.length && !(draft.steps||[]).length) draft.steps = sp.steps;
+      importNote = rows.length+" Zutaten aus dem Bild erkannt"+(sp.steps.length?" + Zubereitung":"")+" – bitte unten prüfen und speichern.";
       renderDraft();
-      toast(rows.length+" Zutaten erkannt"+(sp.steps.length?" + Zubereitung":"")+" – bitte kurz prüfen");
     } else {
       var ta = $("dText"); if(ta) ta.value = text;
       var s4 = $("aiStatus"); if(s4) s4.textContent = "Text erkannt – bitte kurz prüfen und unwichtige Zeilen löschen, dann „Zutaten erkennen“.";
