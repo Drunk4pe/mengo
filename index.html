@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' blob: https://cdn.jsdelivr.net; worker-src 'self' blob: https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://images.openfoodfacts.org https://static.openfoodfacts.org; connect-src 'self' https://world.openfoodfacts.org https://cdn.jsdelivr.net https://tessdata.projectnaptha.com https://api.allorigins.win https://r.jina.ai https://*.workers.dev; media-src 'self' blob:; object-src 'none'; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' blob: https://cdn.jsdelivr.net; worker-src 'self' blob: https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://images.openfoodfacts.org https://static.openfoodfacts.org; connect-src 'self' https://world.openfoodfacts.org https://cdn.jsdelivr.net https://tessdata.projectnaptha.com https://api.allorigins.win https://r.jina.ai https://api.codetabs.com https://*.workers.dev; media-src 'self' blob:; object-src 'none'; base-uri 'none'; form-action 'none'">
 <title>Freizeitküche</title>
 <link rel="manifest" href="manifest.webmanifest">
 <meta name="theme-color" content="#d9542b">
@@ -1937,7 +1937,9 @@ function importLink(url){
   var sources = [];
   if(FK_CONFIG.importProxy) sources.push(function(){ return fetch(FK_CONFIG.importProxy+"?url="+encodeURIComponent(u)).then(function(r){ if(!r.ok) throw 0; return r.json(); }).then(function(v){ if(v && v.ingredients && v.ingredients.length) return v; throw 0; }); });
   sources.push(function(){ return fetch("https://api.allorigins.win/raw?url="+encodeURIComponent(u)).then(function(r){ if(!r.ok) throw 0; return r.text(); }).then(function(html){ var v = extractRecipe(html); if(v) return v; throw 0; }); });
+  sources.push(function(){ return fetch("https://api.codetabs.com/v1/proxy/?quest="+encodeURIComponent(u)).then(function(r){ if(!r.ok) throw 0; return r.text(); }).then(function(html){ var v = extractRecipe(html); if(v) return v; throw 0; }); });
   sources.push(function(){ return fetch("https://r.jina.ai/"+u).then(function(r){ if(!r.ok) throw 0; return r.text(); }).then(function(t){ var sp = splitFull(t); if(!sp.ingredients.length) throw 0; var nm = (t.match(/^Title:\s*(.+)$/m)||[])[1]; return {name: nm?nm.replace(/\s*[|\-–—].*$/,"").trim():null, portions: sp.portions, ingredients: sp.ingredients, steps: sp.steps}; }); });
+  sources.push(function(){ return fetch("https://api.codetabs.com/v1/proxy/?quest="+encodeURIComponent(u)).then(function(r){ if(!r.ok) throw 0; return r.text(); }).then(function(html){ var txt = html.replace(/<script[\s\S]*?<\/script>/gi," ").replace(/<style[\s\S]*?<\/style>/gi," ").replace(/<\/(li|p|div|h\d|tr)>/gi,"\n").replace(/<[^>]+>/g," ").replace(/&nbsp;/g," ").replace(/&amp;/g,"&"); var sp = splitFull(txt); if(!sp.ingredients.length) throw 0; return {name:null, portions: sp.portions, ingredients: sp.ingredients, steps: sp.steps}; }); });
   (function next(i){ if(i>=sources.length){ fail(); return; } var s3=$("aiStatus"); if(s3 && i>0) s3.textContent="🔗 Noch ein Versuch …"; sources[i]().then(function(v){ try{ applyImported(v, u); }catch(e){ next(i+1); } }).catch(function(){ next(i+1); }); })(0);
 }
 var tessLoading = null;
