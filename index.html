@@ -414,7 +414,7 @@ function category(name){
   if(has(n,["nougat","marmelade","konfitüre","honig","cornflakes","müsli","haferflocken"])) return "trocken";
   if(has(n,["semmel","brötchen","brot","toast","wrap","tortilla","baguette","ciabatta"])) return "brot";
   if(has(n,["milch","sahne","butter","käse","quark","joghurt","jogurt","schmand","crème","creme","mozzarella","feta","mascarpone","ei","hack","fleisch","wurst","würst","schinken","speck","salami","hähnchen","pute","gulasch","rind","tofu","spätzle","margarine","hefe","cuisine","haferdrink","sojadrink","aufschnitt","lyoner","gnocchi","schupfnudel","blätterteig","pizzateig"].filter(function(k){return k!=="ei";})) && !has(n,["kokosmilch","milchreis","mehl","zucker"])) return "kuehl";
-  if(/(^|[^a-zäöüß])(ei|eier)([^a-zäöüß]|$)/.test(n)) return "kuehl";
+  if(/(^|[^a-zäöüß])(ei|eier|eigelb|eigelbe|eidotter|eiweiß|eiweiss|eiklar)([^a-zäöüß]|$)/.test(n)) return "kuehl";
   if(has(n,["nudel","spaghetti","penne","fusilli","makkaroni","farfalle","lasagne","reis","mehl","zucker","haferflocken","müsli","grieß","couscous","bulgur","backpulver","stärke","kakao","rosinen","nüsse","nuss","mandel","kaffee","tee","schokolade","paniermehl","cornflakes","linsen","marmelade","konfitüre","honig","nougat","vanille","taco","rösti","röstzwiebel","chips","kekse"])) return "trocken";
   if(has(n,["zwiebel","knoblauch","karotte","möhre","kartoffel","tomate","paprika","gurke","salat","lauch","porree","sellerie","zucchini","aubergine","brokkoli","blumenkohl","kürbis","pilz","champignon","apfel","äpfel","banane","zitrone","limette","orange","beere","petersilie","schnittlauch","basilikum","koriander","ingwer","avocado","mango","ananas","kräuter","spinat","rucola","kohl","frühlingszwiebel","süßkartoffel","chili","obst","gemüse","radieschen","birne","trauben","kiwi","melone","suppengrün","dill","minze"])) return "obst";
   return "sonst";
@@ -597,11 +597,24 @@ function prepIngredient(raw, baking){
     opt: !!raw.opt, alt: raw.alt || null
   };
 }
+function mergeEggs(ing){
+  var yolk=null, white=null, rest=[], countable=function(i){ return (i.u==="Stk"||!i.u) && i.q!=null; };
+  ing.forEach(function(i){ var n=lc(i.n);
+    if(/^(eigelbe?|eidotter)([^a-zäöüß]|$)/.test(n) && countable(i) && !yolk){ yolk=i; }
+    else if(/^(eiwei(ß|ss)|eiklar)([^a-zäöüß]|$)/.test(n) && countable(i) && !white){ white=i; }
+    else rest.push(i);
+  });
+  if(!yolk && !white) return ing;
+  var q = (yolk&&white) ? Math.max(yolk.q, white.q) : (yolk?yolk.q:white.q);
+  var ref = yolk||white;
+  rest.push({n:"Eier", q:q, u:"Stk", s:"m", x:null, na:false, a:allergens("Eier"), c:"kuehl", opt:ref.opt, alt:null});
+  return rest;
+}
 function prepRecipe(r){
   var raw = r.ing.map(function(x){ return Array.isArray(x) ? {n:x[0], q:x[1], u:x[2], s:(x[3]&&x[3].s), opt:(x[3]&&x[3].opt), alt:(x[3]&&x[3].alt), a:(x[3]&&x[3].a)} : x; });
   var baking = isBakingRecipe(raw);
   var base = r.base||10;
-  var ing = raw.map(function(x){ return prepIngredient(x, baking); });
+  var ing = mergeEggs(raw.map(function(x){ return prepIngredient(x, baking); }));
   ing.forEach(function(i){ if(i.s==="l" && i.u==="ml" && i.q!=null && i.q/base>=150){ i.s = "m"; } }); // Suppe: Brühe ist das Gericht
   return {id:r.id, name:r.name, e:r.e||"🍽️", meal:r.meal||"", base:base, own:!!r.own, tip:r.tip||"", steps:r.steps||[], prep:r.prep||[], ing: ing};
 }
