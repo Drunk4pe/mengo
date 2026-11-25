@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; worker-src 'self' blob: https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://images.openfoodfacts.org https://static.openfoodfacts.org; connect-src 'self' https://world.openfoodfacts.org https://cdn.jsdelivr.net https://tessdata.projectnaptha.com https://*.workers.dev; media-src 'self' blob:; object-src 'none'; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' blob: https://cdn.jsdelivr.net; worker-src 'self' blob: https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://images.openfoodfacts.org https://static.openfoodfacts.org; connect-src 'self' https://world.openfoodfacts.org https://cdn.jsdelivr.net https://tessdata.projectnaptha.com https://api.allorigins.win https://*.workers.dev; media-src 'self' blob:; object-src 'none'; base-uri 'none'; form-action 'none'">
 <title>Freizeitküche</title>
 <link rel="manifest" href="manifest.webmanifest">
 <meta name="theme-color" content="#d9542b">
@@ -1856,26 +1856,57 @@ function copyZeitplan(){
   var text = lines.join("\n");
   try{ navigator.clipboard.writeText(text).then(function(){ toast("Zeitplan kopiert"); }, function(){ toast("Kopieren nicht möglich"); }); }catch(e){ toast("Kopieren nicht möglich"); }
 }
+function applyImported(v, u){
+  readDraftFields();
+  if(v.name && !draft.name) draft.name = String(v.name).slice(0,80);
+  var rows = FK.parseLines((v.ingredients||[]).map(String).join("\n"));
+  if(!rows.length) throw 0;
+  var p = v.portions ? parseInt(v.portions,10) : null; if(p) draft.base = Math.max(1, Math.min(500,p));
+  draft.ing = draft.ing.concat(rows);
+  if(v.steps && v.steps.length && !(draft.steps||[]).length) draft.steps = v.steps.map(String).slice(0,30);
+  if(u) draft.src = u;
+  renderDraft(); toast(rows.length+" Zutaten übernommen – bitte kurz prüfen");
+}
+function extractRecipe(html){
+  var recipes = [];
+  function scan(o){
+    if(!o || typeof o!=="object") return;
+    if(Array.isArray(o)){ o.forEach(scan); return; }
+    var t = o["@type"];
+    if(t==="Recipe" || (Array.isArray(t) && t.indexOf("Recipe")>=0)) recipes.push(o);
+    if(o["@graph"]) scan(o["@graph"]);
+  }
+  var re = /<script[^>]+application\/ld\+json[^>]*>([\s\S]*?)<\/script>/gi, m;
+  while((m = re.exec(html))){ try{ scan(JSON.parse(m[1].trim())); }catch(e){} }
+  if(!recipes.length) return null;
+  var r = recipes[0];
+  var clean = function(s){ return String(s==null?"":s).replace(/<[^>]*>/g," ").replace(/&nbsp;/g," ").replace(/&amp;/g,"&").replace(/&quot;/g,'"').replace(/&#0?39;|&apos;/g,"'").replace(/&lt;/g,"<").replace(/&gt;/g,">").replace(/\s+/g," ").trim(); };
+  var ings = r.recipeIngredient || r.ingredients || [];
+  if(!Array.isArray(ings)) ings = [ings];
+  ings = ings.map(clean).filter(Boolean).slice(0,80);
+  if(!ings.length) return null;
+  var y = Array.isArray(r.recipeYield) ? r.recipeYield[0] : r.recipeYield, ym = String(y==null?"":y).match(/\d+/);
+  var steps = [];
+  (function col(x){
+    if(!x) return;
+    if(typeof x==="string"){ var c=clean(x); if(c) steps.push(c); return; }
+    if(Array.isArray(x)){ x.forEach(col); return; }
+    if(x["@type"]==="HowToSection"){ col(x.itemListElement); return; }
+    if(x.text){ var c2=clean(x.text); if(c2) steps.push(c2); }
+  })(r.recipeInstructions);
+  return {name: clean(r.name).slice(0,120), portions: ym?parseInt(ym[0],10):null, ingredients: ings, steps: steps.slice(0,30)};
+}
 function importLink(url){
   var st = $("aiStatus");
   var u = safeUrl(url);
   if(!u){ toast("Bitte einen gültigen Link (https://…) einfügen"); return; }
-  if(!FK_CONFIG.importProxy){
-    if(st) st.innerHTML = 'Der Link-Import braucht einen kleinen, kostenlosen Helfer-Dienst, der noch nicht eingerichtet ist (Anleitung in der README). Bis dahin: Zutatenliste auf der Rezeptseite markieren, kopieren und unten einfügen – oder einen <b>Screenshot</b> machen und als Foto einfügen.';
+  if(st) st.textContent = "🔗 Rezept wird geholt …";
+  var fail = function(){ var s2 = $("aiStatus"); if(s2) s2.innerHTML = 'Das hat nicht geklappt. Manche Seiten lassen sich nicht auslesen – dann die Zutaten auf der Seite markieren, kopieren und unten einfügen, oder einen <b>Screenshot</b> als Foto einfügen.'; };
+  if(FK_CONFIG.importProxy){
+    fetch(FK_CONFIG.importProxy+"?url="+encodeURIComponent(u)).then(function(r){ if(!r.ok) throw 0; return r.json(); }).then(function(v){ if(!v || !v.ingredients || !v.ingredients.length) throw 0; applyImported(v, u); }).catch(fail);
     return;
   }
-  if(st) st.textContent = "🔗 Rezept wird geholt …";
-  fetch(FK_CONFIG.importProxy+"?url="+encodeURIComponent(u)).then(function(r){ if(!r.ok) throw 0; return r.json(); }).then(function(v){
-    if(!v || !v.ingredients || !v.ingredients.length) throw 0;
-    readDraftFields();
-    if(v.name && !draft.name) draft.name = String(v.name).slice(0,80);
-    var rows = FK.parseLines(v.ingredients.map(String).join("\n"));
-    var p = v.portions ? parseInt(v.portions,10) : null; if(p) draft.base = Math.max(1, Math.min(500,p));
-    draft.ing = draft.ing.concat(rows);
-    if(v.steps && v.steps.length && !(draft.steps||[]).length) draft.steps = v.steps.map(String).slice(0,30);
-    draft.src = u;
-    renderDraft(); toast(rows.length+" Zutaten übernommen – bitte kurz prüfen");
-  }).catch(function(){ var s2 = $("aiStatus"); if(s2) s2.textContent = "Das hat nicht geklappt. Manche Seiten lassen sich nicht auslesen – dann bitte Zutaten kopieren oder einen Screenshot nutzen."; });
+  fetch("https://api.allorigins.win/raw?url="+encodeURIComponent(u)).then(function(r){ if(!r.ok) throw 0; return r.text(); }).then(function(html){ var v = extractRecipe(html); if(!v) throw 0; applyImported(v, u); }).catch(fail);
 }
 var tessLoading = null;
 function loadTesseract(){
