@@ -346,7 +346,11 @@ details.card summary{cursor:pointer}
 .arow input{flex:1}
 .rr input.rqn{width:80px;border:1px solid var(--line);border-radius:9px;padding:7px;font:inherit;background:#fff}
 main .fl select,main .fl input{width:100%;border:1px solid var(--line);border-radius:10px;padding:9px;font:inherit;background:#fff;display:block;margin-top:4px}
-.ask p{white-space:pre-line}</style>
+.ask p{white-space:pre-line}
+.swipe{position:relative}
+.swipe .proj{width:100%;box-sizing:border-box;margin:0;position:relative;z-index:1;background:var(--card);touch-action:pan-y;will-change:transform;transition:transform .18s ease}
+.swipe-del{position:absolute;top:6px;right:6px;bottom:6px;width:76px;border:0;border-radius:14px;background:#d7352a;color:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;font:inherit;font-size:22px;z-index:0}
+.swipe-del span{font-size:12px;font-weight:600}</style>
 </head>
 <body>
 <div id="app"></div>
@@ -1179,6 +1183,7 @@ function render(){
   $("app").innerHTML = h;
   setSaveNote(note);
   if(tab==="zeitplan") bindZeitplanScroll();
+  if(tab==="home") bindSwipe();
 }
 function navBtn(k, e, l, on){ return '<button class="nav'+((on||tab===k)?' on':'')+'" data-tab="'+k+'"><span>'+e+'</span>'+l+'</button>'; }
 function toast(t){ var el = $("toast"); if(!el) return; el.textContent = t; el.classList.add("show"); clearTimeout(toast._t); toast._t = setTimeout(function(){ el.classList.remove("show"); }, 2200); }
@@ -1918,7 +1923,43 @@ function isPast(p){ return p.closed || (p.end && p.end < today()); }
 function lagerById(id){ return G.lager.filter(function(l){ return l.id===id; })[0] || null; }
 function projCard(p){
   var l = lagerById(p.lager);
-  return '<button class="proj'+(isPast(p)?' past':'')+'" data-act="openProj" data-id="'+esc(p.id)+'"><b>'+esc(p.name)+'</b><span>'+esc(fRange(p.start, p.end))+' · '+esc(p.persons)+' Pers.</span><small>'+(p.plan.length?esc(p.plan.length)+' Gericht'+(p.plan.length>1?'e':''):'noch keine Gerichte')+(l?' · 📦 '+esc(lagerLabel(p)):'')+(p.closed?' · ✅ abgeschlossen':'')+'</small><i>›</i></button>';
+  return '<div class="swipe"><button class="swipe-del" data-act="swipeDel" data-id="'+esc(p.id)+'" tabindex="-1" aria-label="Freizeit löschen">🗑<span>Löschen</span></button>'+
+    '<button class="proj'+(isPast(p)?' past':'')+'" data-act="openProj" data-id="'+esc(p.id)+'"><b>'+esc(p.name)+'</b><span>'+esc(fRange(p.start, p.end))+' · '+esc(p.persons)+' Pers.</span><small>'+(p.plan.length?esc(p.plan.length)+' Gericht'+(p.plan.length>1?'e':''):'noch keine Gerichte')+(l?' · 📦 '+esc(lagerLabel(p)):'')+(p.closed?' · ✅ abgeschlossen':'')+'</small><i>›</i></button></div>';
+}
+function closeSwipes(except){
+  document.querySelectorAll(".swipe").forEach(function(w){ if(w!==except){ w._open = false; var c = w.querySelector(".proj"); if(c) c.style.transform = ""; } });
+}
+function bindSwipe(){
+  document.querySelectorAll(".swipe").forEach(function(w){
+    if(w._b) return; w._b = true;
+    var card = w.querySelector(".proj"), x0=0, y0=0, dx=0, drag=false, moved=false;
+    function set(px){ card.style.transform = px ? "translateX("+px+"px)" : ""; }
+    card.addEventListener("pointerdown", function(e){
+      if(e.pointerType==="mouse" && e.button!==0) return;
+      x0=e.clientX; y0=e.clientY; dx=0; drag=true; moved=false;
+      try{ card.setPointerCapture(e.pointerId); }catch(_){}
+      card.style.transition="none";
+    });
+    card.addEventListener("pointermove", function(e){
+      if(!drag) return;
+      var ddx=e.clientX-x0, ddy=e.clientY-y0;
+      if(!moved){
+        if(Math.abs(ddx)<8 && Math.abs(ddy)<8) return;
+        if(Math.abs(ddy)>Math.abs(ddx)){ drag=false; set(w._open?-88:0); return; }
+        moved=true; closeSwipes(w);
+      }
+      dx = ddx + (w._open?-88:0);
+      if(dx>0) dx=0; if(dx<-104) dx=-104;
+      set(dx);
+    });
+    function end(){ if(!drag) return; drag=false; card.style.transition=""; if(moved){ w._open = dx < -46; set(w._open?-88:0); } }
+    card.addEventListener("pointerup", end);
+    card.addEventListener("pointercancel", end);
+    card.addEventListener("click", function(e){
+      if(w._open){ e.preventDefault(); e.stopPropagation(); w._open=false; set(0); }
+      else if(moved){ e.preventDefault(); e.stopPropagation(); }
+    }, true);
+  });
 }
 function viewHome(){
   var act = G.projects.filter(function(p){ return !isPast(p); }).sort(function(a,b){ return (a.start||"9").localeCompare(b.start||"9"); });
@@ -2264,6 +2305,7 @@ document.addEventListener("click", function(e){
     case "editProj": projForm(S); break;
     case "saveProj": saveProj(); break;
     case "delProj": var dpn = S.name; ask("Freizeit „"+dpn+"“ mit Plan und Zeitplan löschen? Das Lager bleibt.", "Löschen", function(){ var id = S.id; G.projects = G.projects.filter(function(x){ return x.id!==id; }); closeProj(); toast("Gelöscht"); }); break;
+    case "swipeDel": var sdp = G.projects.filter(function(x){ return x.id===t.getAttribute("data-id"); })[0]; if(!sdp) break; ask("Freizeit „"+sdp.name+"“ löschen? Plan und Zeitplan gehen weg, das Lager bleibt.", "Löschen", function(){ var id = sdp.id; G.projects = G.projects.filter(function(x){ return x.id!==id; }); if(G.cur===id){ G.cur=""; S=null; } save(); render(); toast("„"+sdp.name+"“ gelöscht"); }); break;
     case "openProj": openProj(t.getAttribute("data-id")); break;
     case "closeProj": closeProj(); break;
     case "pickArea": keepInvOpen = false; curArea = t.getAttribute("data-id"); render(); break;
